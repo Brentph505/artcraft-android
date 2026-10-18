@@ -1,0 +1,191 @@
+name: Build all ArtCraft Android APKs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-all-android.yml"
+      - "build.sh"
+      - "build-debug.sh"
+      - "lib/**"
+      - "adapters/**"
+      - "templates/android/**"
+  pull_request:
+    paths:
+      - ".github/workflows/build-all-android.yml"
+      - "build.sh"
+      - "build-debug.sh"
+      - "lib/**"
+      - "adapters/**"
+      - "templates/android/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artcraft-android-build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ARTCRAFT_TARGET_SDK: "35"
+  CARGO_BUILD_JOBS: "2"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  prepare-cargo-apk2:
+    name: Prepare Android packaging tool
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake pkg-config libssl-dev libclang-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build cargo-apk2 once for the matrix
+        run: cargo install cargo-apk2 --locked
+
+      - name: Save cargo-apk2 executable
+        run: cp "$HOME/.cargo/bin/cargo-apk2" ./cargo-apk2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cargo-apk2-cli
+          path: cargo-apk2
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build ${{ matrix.app }}
+    needs: prepare-cargo-apk2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        app:
+          - photocraft
+          - vectorcraft
+          - filmcraft
+          - lightcraft
+          - pdfcraft
+          - effectcraft
+          - designcraft
+          - figcraft
+          - wordcraft
+          - soundcraft
+          - deckcraft
+          - cadcraft
+          - gridcraft
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK packages
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018"
+
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake pkg-config libssl-dev libclang-dev
+
+      - name: Install Rust and Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Download cargo-apk2
+        uses: actions/download-artifact@v4
+        with:
+          name: cargo-apk2-cli
+          path: .ci-tools
+
+      - name: Install cargo-apk2
+        run: |
+          install -D -m 0755 .ci-tools/cargo-apk2 "$HOME/.cargo/bin/cargo-apk2"
+          cargo apk2 --help
+
+      - name: Restore optional persistent signing key
+        env:
+          ARTCRAFT_KEYSTORE_BASE64: ${{ secrets.ARTCRAFT_KEYSTORE_BASE64 }}
+          ARTCRAFT_KEYSTORE_PASSWORD: ${{ secrets.ARTCRAFT_KEYSTORE_PASSWORD }}
+        shell: bash
+        run: |
+          if [[ -n "$ARTCRAFT_KEYSTORE_BASE64" || -n "$ARTCRAFT_KEYSTORE_PASSWORD" ]]; then
+            if [[ -z "$ARTCRAFT_KEYSTORE_BASE64" || -z "$ARTCRAFT_KEYSTORE_PASSWORD" ]]; then
+              echo "Set both ARTCRAFT_KEYSTORE_BASE64 and ARTCRAFT_KEYSTORE_PASSWORD, or leave both unset." >&2
+              exit 1
+            fi
+            mkdir -p keys
+            printf '%s' "$ARTCRAFT_KEYSTORE_BASE64" | base64 --decode > keys/artcraft-builder.jks
+            printf '%s' "$ARTCRAFT_KEYSTORE_PASSWORD" > keys/.keystore-password
+            chmod 600 keys/artcraft-builder.jks keys/.keystore-password
+          else
+            echo "No CI signing secrets provided; the builder will create a temporary signing key."
+            echo "Install updates from this run by uninstalling the previous CI-signed copy first."
+          fi
+
+      - name: Build release APK
+        run: bash build.sh "-${{ matrix.app }}"
+
+      - name: Upload APK for ${{ matrix.app }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: artcraft-apk-${{ matrix.app }}
+          path: output/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  package-all:
+    name: Package all APKs
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download successful app builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artcraft-apk-*
+          merge-multiple: true
+          path: all-apks
+
+      - name: Verify and package all 13 APKs
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apks=(all-apks/*.apk)
+          if [[ "${#apks[@]}" -ne 13 ]]; then
+            echo "Expected 13 APKs, found ${#apks[@]}." >&2
+            printf 'Found: %s\n' "${apks[@]}" >&2
+            exit 1
+          fi
+          (cd all-apks && sha256sum *.apk > SHA256SUMS.txt)
+          zip -j artcraft-android-all-apks.zip "${apks[@]}" all-apks/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artcraft-android-all-apks
+          path: artcraft-android-all-apks.zip
+          if-no-files-found: error
+          retention-days: 14
