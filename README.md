@@ -71,6 +71,22 @@ bash build.sh -photocraft \
 
 Build output is separated by app so that Cargo artifacts and source changes do not need to be shared between targets.
 
+
+## GitHub Actions: build every app
+
+The workflow at `.github/workflows/build-all-android.yml` builds release APKs for all thirteen supported apps on pushes that change the Android builder, on pull requests, or when started manually from **Actions → Build all ArtCraft Android APKs → Run workflow**.
+
+Each successful app build is uploaded as its own artifact. When all thirteen builds succeed, the `artcraft-android-all-apks` artifact contains one ZIP with all APKs and a `SHA256SUMS.txt` checksum list. Open the workflow run under the repository's **Actions** tab to download the artifacts.
+
+### Keep CI signatures stable across builds
+
+Without signing secrets, CI creates a temporary signing key; Android may require you to uninstall an APK from an earlier CI run before installing the next one. To allow in-place updates, add these repository Actions secrets under **Settings → Secrets and variables → Actions**:
+
+- `ARTCRAFT_KEYSTORE_BASE64`: Base64-encoded `keys/artcraft-builder.jks`.
+- `ARTCRAFT_KEYSTORE_PASSWORD`: the contents of `keys/.keystore-password`.
+
+On Linux, encode the keystore with `base64 -w0 keys/artcraft-builder.jks`. On Windows PowerShell, use `[Convert]::ToBase64String([IO.File]::ReadAllBytes("keys/artcraft-builder.jks"))`. Never commit the keystore, its password, or the encoded value into the repository. If both secrets are configured, the workflow reuses that keystore for every app and future run; otherwise it falls back to a temporary key.
+
 ## Source checkout behavior
 
 The builder is designed to preserve local work. It does not delete an existing source checkout, reset it, or pull over local changes. Subsequent builds reuse the existing checkout and any modifications made to the Android port.
