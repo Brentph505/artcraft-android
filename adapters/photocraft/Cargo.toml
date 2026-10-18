@@ -30,7 +30,7 @@ resources = "res"
 java_sources = "java"
 
 [package.metadata.android.sdk]
-min_sdk_version = 28
+min_sdk_version = 27
 target_sdk_version = 35
 
 [package.metadata.android.application]

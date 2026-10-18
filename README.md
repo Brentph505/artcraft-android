@@ -146,6 +146,12 @@ Keep the keystore and password safe and stable if you need to install later APKs
 
 Start with the relevant file in `logs/`. If the generic launcher cannot initialize an app or one of its dependencies does not support Android, review the adapter guidance in [`adapters/README.md`](adapters/README.md).
 
+### Android 8.1 compatibility (including Vivo Y91C)
+
+The generated launchers and the PhotoCraft/VectorCraft adapters use `min_sdk_version = 27`, which matches Android 8.1 (API 27). The target SDK remains at the existing configured value; it is not the minimum Android version. The builder packages arm64 APKs, which is supported by the Vivo Y91C's arm64 Android firmware.
+
+If the installer still reports a parsing error after rebuilding, verify that the downloaded APK is complete and signed, and capture the exact installation error with `adb install <file.apk>` before changing other settings.
+
 For device-level validation, test the workflows that matter for the target app, including opening files from other apps, saving and exporting, keyboard input, audio or media playback, lifecycle transitions, and touch interaction.
 
 ## Related projects

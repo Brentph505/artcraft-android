@@ -1,5 +1,11 @@
 # Changelog
 
+## v25 — 2026-10-18
+
+### Fixed
+- Lowered the minimum Android SDK from API 28 to API 27 for generated launchers, PhotoCraft and VectorCraft. This restores package compatibility with Android 8.1 (API 27), including the Vivo Y91C. The target SDK remains unchanged; this changes the minimum supported OS, not the app's target behavior.
+- Bumped the generated-launcher template version so existing generated launchers are regenerated with the corrected minimum SDK on the next build.
+
 ## v24 — 2026-10-17
 
 ### Changed

@@ -332,7 +332,7 @@ marker = android_dir / ".artcraft-android-builder-generated"
 # Bump this whenever the generated launcher template changes so stale wrappers (which live in the
 # source checkout and would otherwise be preserved forever) are regenerated automatically instead
 # of failing against a newer app API.
-GENERATOR_VERSION = "24"
+GENERATOR_VERSION = "25"
 
 # A complete adapter supplied by the user wins over auto-detection. This folder is maintained
 # inside the builder, while its contents are copied into this source checkout.
@@ -2059,7 +2059,7 @@ build_targets = ["aarch64-linux-android"]
 resources = "res"
 {java_sources}
 [package.metadata.android.sdk]
-min_sdk_version = 28
+min_sdk_version = 27
 target_sdk_version = {target_sdk}
 
 # Let the app's own file browsers read and write files on the device (see
