@@ -228,6 +228,60 @@ PY
     echo "Verified the Android file bridge: $pkg.$activity launches the app and is compiled into the APK."
 }
 
+# Android API 33 introduced AMotionEvent_getActionButton. A direct undefined ELF import crashes
+# NativeActivity on older devices before the Rust UI runs. Keep every ArtCraft APK compatible with
+# Android 8.1+ by checking all packaged native libraries after linking.
+verify_legacy_android_symbols() {
+    local apk="$1"
+    local readelf_tool=""
+    if command -v llvm-readelf >/dev/null 2>&1; then
+        readelf_tool="llvm-readelf"
+    elif command -v readelf >/dev/null 2>&1; then
+        readelf_tool="readelf"
+    else
+        fail "readelf/llvm-readelf is required to validate native Android API compatibility."
+    fi
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    if ! python3 - "$apk" "$tmp_dir" <<'PY'
+import sys, zipfile
+from pathlib import Path
+
+apk, destination = Path(sys.argv[1]), Path(sys.argv[2])
+try:
+    with zipfile.ZipFile(apk) as archive:
+        libraries = [
+            info for info in archive.infolist()
+            if info.filename.startswith("lib/") and info.filename.endswith(".so")
+        ]
+        if not libraries:
+            raise SystemExit("APK contains no native shared libraries")
+        for info in libraries:
+            output = destination / info.filename.replace("/", "_")
+            output.write_bytes(archive.read(info))
+except (OSError, zipfile.BadZipFile) as error:
+    raise SystemExit(f"Could not inspect APK native libraries: {error}")
+PY
+    then
+        rm -rf -- "$tmp_dir"
+        fail "Could not extract native libraries from $apk for API compatibility verification."
+    fi
+
+    local native_lib
+    for native_lib in "$tmp_dir"/*.so; do
+        [[ -f "$native_lib" ]] || continue
+        if "$readelf_tool" -Ws "$native_lib" 2>/dev/null |
+            grep -Eq 'UND[[:space:]].*AMotionEvent_getActionButton'; then
+            rm -rf -- "$tmp_dir"
+            fail "$(basename "$native_lib") hard-links AMotionEvent_getActionButton (API 33+), which prevents loading on Android 12 and older. Use runtime symbol lookup with an older-OS fallback."
+        fi
+    done
+
+    rm -rf -- "$tmp_dir"
+    echo "Verified: packaged native libraries have no hard dependency on API-33-only AMotionEvent_getActionButton."
+}
+
 say 2 "Finding Android SDK and NDK (read-only; project files stay under $ROOT)..."
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
 [[ -d "$SDK/platforms" ]] || fail "Android SDK platform directory not found: $SDK/platforms. Set ANDROID_HOME to your SDK."
@@ -2994,6 +3048,7 @@ cp -f "$BUILT_APK" "$FINAL_APK"
 
 say 7 "Verifying the Android file bridge in the built APK..."
 verify_android_bridge "$APP" "$BUILT_APK"
+verify_legacy_android_symbols "$BUILT_APK"
 
 say 8 "Build succeeded."
 echo "App: $TITLE"

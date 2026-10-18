@@ -5,6 +5,38 @@ use crate::input::{
     MotionEventFlags, Pointer, PointersIter, Source, ToolType,
 };
 
+// AMotionEvent_getActionButton was added to libandroid in API 33. A direct ndk-sys call leaves
+// that symbol undefined in the app's .so, so NativeActivity cannot load the library on Android 12
+// or older (including Android 8.1/API 27). Resolve it optionally at runtime instead. Touch-only
+// devices and older Android versions safely report no changed hardware button.
+fn get_action_button_compat(event: *const ndk_sys::AInputEvent) -> i32 {
+    type GetActionButton = unsafe extern "C" fn(*const ndk_sys::AInputEvent) -> i32;
+
+    static GET_ACTION_BUTTON: std::sync::OnceLock<Option<GetActionButton>> =
+        std::sync::OnceLock::new();
+
+    let function = GET_ACTION_BUTTON.get_or_init(|| unsafe {
+        let library = libc::dlopen(c"libandroid.so".as_ptr(), libc::RTLD_NOW);
+        if library.is_null() {
+            return None;
+        }
+
+        let symbol = libc::dlsym(library, c"AMotionEvent_getActionButton".as_ptr());
+        if symbol.is_null() {
+            // The library is only kept open when we retain a function pointer into it.
+            libc::dlclose(library);
+            None
+        } else {
+            Some(std::mem::transmute::<*mut libc::c_void, GetActionButton>(symbol))
+        }
+    });
+
+    match function {
+        Some(function) => unsafe { function(event) },
+        None => 0,
+    }
+}
+
 /// A motion event
 ///
 /// For general discussion of motion events in Android, see [the relevant
@@ -68,8 +100,7 @@ impl MotionEvent<'_> {
     /// See [the MotionEvent docs](https://developer.android.com/reference/android/view/MotionEvent#getActionButton())
     #[inline]
     pub fn action_button(&self) -> Button {
-        let action_button =
-            unsafe { ndk_sys::AMotionEvent_getActionButton(self.ndk_event.ptr().as_ptr()) as u32 };
+        let action_button = get_action_button_compat(self.ndk_event.ptr().as_ptr()) as u32;
         action_button.into()
     }
 

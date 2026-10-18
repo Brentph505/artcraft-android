@@ -1,5 +1,11 @@
 # Changelog
 
+## v26 — 2026-10-18
+
+### Fixed
+- EffectCraft crashed before its UI loaded on Android 8.1 with `dlopen failed: cannot locate symbol "AMotionEvent_getActionButton"`. The symbol was introduced in Android API 33, but the vendored `android-activity` crate referenced it directly. The shared crate now resolves it at runtime and returns a neutral button value when the symbol is unavailable, preserving support for Android 8.1/API 27.
+- Added a release-build verification step that inspects every APK's packaged native libraries and fails if they contain a hard undefined reference to the API-33-only symbol. This protects every app using the shared Android native glue from the same regression.
+
 ## v25 — 2026-10-18
 
 ### Fixed
